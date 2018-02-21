@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+
+"""
+Creates an hdf5 file with the angular average  and the average image 
+for the CSPAD and for a given number of shots
+
+Example use:
+for mpi use this instead:
+bsub -n 12 -q psfehq -o output.txt mpirun python 20_cspad_Iq.py -s 20000 -r 295 -e 3
+"""
+
+import psana
+import argparse
+import numpy as np
+import time
+
+from skbeam.core.accumulators.binned_statistic import RadialBinnedStatistic, BinnedStatistic1D
+
+# - parsers
+parser = argparse.ArgumentParser(description='Analyze a run of xcsm9816. Use MPI!')
+parser.add_argument('-r', '--run', type=int, help='run number to process')
+parser.add_argument('-s','--SHOTS',type=int,default=83,help='run number')
+args = parser.parse_args()
+
+run      = args.run
+shots    = args.SHOTS
+
+# -  create the datasource
+ds_string = 'exp=xcsm9816:run=%s:smd' % args.run
+print 'Processing: %s' % ds_string
+ds = psana.MPIDataSource(ds_string)
+cspad = psana.Detector('cspad2x2_diff')
+
+smldata = ds.small_data('/reg/d/psdm/xcs/xcsm9816/scratch/cspad/cspad_r%04d_s%d.h5' % (run,shots))
+
+# - constants and parameters
+cspad_shape = (2, 185, 388)
+
+# - initialise
+cspad_sum = np.zeros(cspad_shape)
+cspad_summed_shots = 0
+
+# - mask
+mask_path = '/reg/neh/home4/fperakis/xcsm9816/speckle/fivos/masks/'
+mask = np.load(mask_path+'mask_run296_cspad.npy').astype(bool)
+
+# -- cspad geometry (Q-map)
+qs_path = '/reg/d/psdm/xcs/xcsm9816/results/geometry/q_mags.npy'
+cspad_qs = np.load(qs_path)*mask
+
+# -- angular integration
+cspad_radint_bins = 500
+cspad_radint = BinnedStatistic1D(cspad_qs.flatten(),
+                                 statistic='mean',
+                                 bins=cspad_radint_bins,
+                                 range=None,
+                                 mask=None)
+
+# - main loop
+t0 = time.time()
+for ie, evt in enumerate(ds.events()):
+    cspad_calib = cspad.calib(evt)
+    if cspad_calib is not None:
+        cspad_sum  += cspad_calib
+        cspad_summed_shots += 1
+        cspad_lo = cspad_radint(cspad_calib.flatten())
+    else:
+        cspad_lo = np.zeros(cspad_radint_bins)
+
+    smldata.event({'cspad' : {'lineout' : cspad_lo}})
+    print '%d | %.2f Hz (per core)' % (ie, 1./(time.time()-t0))
+    t0 = time.time()
+
+smldata.sum(cspad_sum)
+smldata.sum(cspad_summed_shots)
+
+smldata.save({'cspad' : {'sum' : cspad_sum,
+                         'summed_shots' : cspad_summed_shots}})
+if smldata.master:
+    smldata.file_handle.close()
+    print 'SMALLDATA DONE'

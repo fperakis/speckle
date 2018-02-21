@@ -1,19 +1,17 @@
 #!/usr/bin/env python
 
 """
-Creates an hdf5 file with the photon histograms and the average image 
+Creates an hdf5 file with the photon histograms and the average image
 for one of the epix detectors and for a given number of shots
 
 Example command:
 #bsub -n 12 -q psfehq -o output.txt mpirun python speckle.analyse-epix.py -s 20000 -r 295 -e 3
 """
 
-
 import psana
 import argparse
 import numpy as np
 import time
-
 
 # - parsers
 parser = argparse.ArgumentParser(description='Analyze a run of xcsm9816. Use MPI!')
@@ -30,7 +28,6 @@ epix_num = args.epix_num
 epix_shape  = (704, 768)    # dimensions of epix (pixels)
 n_hist      = 5             # length of photon histogram 
 photon_adus = 115.          # parameter for the photon routine
-num_rings   = 10            # number of rings over q space
 
 # -  create the datasource
 ds_string = 'exp=xcsm9816:run=%s:smd' % args.run
@@ -40,7 +37,7 @@ ds = psana.MPIDataSource(ds_string)
 
 smldata = ds.small_data('/reg/d/psdm/xcs/xcsm9816/scratch/epix/epix_r%04d_s%d_e%d_qdep_rings.h5' % (run,shots,epix_num))
 epix    = psana.Detector('epix_%d'%epix_num)
-ipm6    = psana.Detector('XCS-IPM-gon')
+ipm5    = psana.Detector('XCS-IPM-gon') # must update to ipm5
 fee     = psana.Detector('FEEGasDetEnergy')
 ebeam   = psana.Detector('EBeam')
 
@@ -70,17 +67,15 @@ for ie, evt in enumerate(ds.events()):
     img     = epix.calib(evt)
     gas_det = gasdet_energy(evt)
     e_beam  = ebeam.get(evt)
-    photon_hist = np.zeros([num_rings,n_hist-1])
+    photon_hist = np.zeros(n_hist-1)
 
     if img is not None:
         is_good        = 1
         img            = epix.photons(evt, adu_per_photon=photon_adus)
         local_sum_img += np.array(img)
 	ebeam_energy   = e_beam.ebeamPhotonEnergy()
-        diode          = ipm6.sum(evt)
-	# -- loop over rings
-        for ir in range(1,num_rings):
-               photon_hist[ir,:],hx = np.histogram(img[r_mask==ir], bins=np.arange(n_hist))
+        diode          = ipm5.sum(evt)
+        photon_hist,hx = np.histogram(img[r_mask==ir], bins=np.arange(n_hist))
     else:
         is_good        = 0
 	ebeam_energy   = -1
@@ -88,7 +83,7 @@ for ie, evt in enumerate(ds.events()):
 
     smldata.event(histogram    = photon_hist,
                   good_shots   = is_good,
-                  direct_diode = diode,
+                  ipm5_diode   = diode,
                   gas_detector = gas_det,
                   e_energy     = ebeam_energy)
     print '%d | %.2f Hz (per core) | good=%d' % (ie, 1./(time.time()-t0), is_good)
