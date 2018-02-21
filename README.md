@@ -1,4 +1,4 @@
-LD31-analysis
+LR00-analysis
 =============
 
 Data analysis scripts &amp; base code for XPCS experiments.
@@ -15,12 +15,12 @@ Installation on an LCLS machine
 
 1) Create a python virtual environment you can install private libraries into
 ```
-$ virtualenv xcsm9816
+$ virtualenv xcslr0016
 ```
 
 2) download the speckle repo (be sure you are on pslogin so you have internet)
 ```
-$ git clone https://github.com/tjlane/speckle.git
+$ git clone https://github.com/fperakis/speckle.git
 ```
 
 3) install speckle
