@@ -6,7 +6,7 @@ for the CSPAD and for a given number of shots
 
 Example use:
 for mpi use this instead:
-bsub -n 12 -q psfehq -o output.txt mpirun python 20_cspad_Iq.py -s 20000 -r 295 -e 3
+bsub -n 12 -q psfehq -o output.txt mpirun python speckle.analyse-cspad -s 20000 -r 295
 """
 
 import psana
@@ -17,21 +17,20 @@ import time
 from skbeam.core.accumulators.binned_statistic import RadialBinnedStatistic, BinnedStatistic1D
 
 # - parsers
-parser = argparse.ArgumentParser(description='Analyze a run of xcsm9816. Use MPI!')
+parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016. Use MPI!')
 parser.add_argument('-r', '--run', type=int, help='run number to process')
-parser.add_argument('-s','--SHOTS',type=int,default=83,help='run number')
+parser.add_argument('-s','--SHOTS',type=int, default=100,help='run number')
 args = parser.parse_args()
 
 run      = args.run
 shots    = args.SHOTS
 
-# -  create the datasource
-ds_string = 'exp=xcsm9816:run=%s:smd' % args.run
-print 'Processing: %s' % ds_string
+# -  create the datasourse
+ds_string = 'exp=xcslr0016:run=%s:smd' % args.run
 ds = psana.MPIDataSource(ds_string)
 cspad = psana.Detector('cspad2x2_diff')
 
-smldata = ds.small_data('/reg/d/psdm/xcs/xcsm9816/scratch/cspad/cspad_r%04d_s%d.h5' % (run,shots))
+smldata = ds.small_data('/reg/d/psdm/xcs/xcslr0016/scratch/cspad/cspad_r%04d_s%d.h5' % (run,shots))
 
 # - constants and parameters
 cspad_shape = (2, 185, 388)
@@ -41,11 +40,11 @@ cspad_sum = np.zeros(cspad_shape)
 cspad_summed_shots = 0
 
 # - mask
-mask_path = '/reg/neh/home4/fperakis/xcsm9816/speckle/fivos/masks/'
-mask = np.load(mask_path+'mask_run296_cspad.npy').astype(bool)
+mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
+mask = np.load(mask_path+'mask_cspad.npy').astype(bool)
 
 # -- cspad geometry (Q-map)
-qs_path = '/reg/d/psdm/xcs/xcsm9816/results/geometry/q_mags.npy'
+qs_path = '/reg/d/psdm/xcs/xcslr0016/scratch/geometry/q_mags.npy'
 cspad_qs = np.load(qs_path)*mask
 
 # -- angular integration
