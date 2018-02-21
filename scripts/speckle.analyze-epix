@@ -14,9 +14,9 @@ import numpy as np
 import time
 
 # - parsers
-parser = argparse.ArgumentParser(description='Analyze a run of xcsm9816. Use MPI!')
+parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016. Use MPI!')
 parser.add_argument('-r', '--run', type=int, help='run number to process')
-parser.add_argument('-s','--SHOTS',type=int,default=83,help='run number')
+parser.add_argument('-s','--SHOTS',type=int,default=100,help='run number')
 parser.add_argument('-e','--epix_num',type=int,default=1,help='epix number')
 args = parser.parse_args()
 
@@ -30,14 +30,14 @@ n_hist      = 5             # length of photon histogram
 photon_adus = 115.          # parameter for the photon routine
 
 # -  create the datasource
-ds_string = 'exp=xcsm9816:run=%s:smd' % args.run
+ds_string = 'exp=xcslr0016:run=%s:smd' % args.run#:dir=/reg/d/ffb/xcs/xcslr0016/xtc:live' % args.run
 print 'Processing: %s' % ds_string
 ds = psana.MPIDataSource(ds_string)
 #ds.break_after(shots)
 
-smldata = ds.small_data('/reg/d/psdm/xcs/xcsm9816/scratch/epix/epix_r%04d_s%d_e%d_qdep_rings.h5' % (run,shots,epix_num))
+smldata = ds.small_data('/reg/d/psdm/xcs/xcslr0016/scratch/epix/epix_r%04d_s%d_e%.h5' % (run,shots,epix_num))
 epix    = psana.Detector('epix_%d'%epix_num)
-ipm5    = psana.Detector('XCS-IPM-gon') # must update to ipm5
+ipm5    = psana.Detector('XCS-IPM-05')
 fee     = psana.Detector('FEEGasDetEnergy')
 ebeam   = psana.Detector('EBeam')
 
@@ -45,10 +45,8 @@ ebeam   = psana.Detector('EBeam')
 local_sum_img = np.zeros([epix_shape[0],epix_shape[1]],dtype=int)
 
 # - mask
-mask_path = '/reg/neh/home4/fperakis/xcsm9816/speckle/fivos/masks/'
-mask      = np.load(mask_path+'mask_run296_epix%d_shots20000.npy'%(epix_num))
-ring_mask = np.load(mask_path + 'ring_mask.npy')
-r_mask    = np.array(mask*ring_mask[epix_num-1])
+mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
+mask      = np.load(mask_path+'mask_epix%d.npy'%(epix_num))
 
 # -- helper functions
 def gasdet_energy(event):
