@@ -72,7 +72,6 @@ for ie, evt in enumerate(ds.events()):
     smldata.event(histogram    = photon_hist,
                   good_shots   = is_good,
                   ipm5_diode   = diode,
-                  gas_detector = gas_det,
                   e_energy     = ebeam_energy)
     print '%d | %.2f Hz (per core) | good=%d' % (ie, 1./(time.time()-t0), is_good)
     t0 = time.time()
