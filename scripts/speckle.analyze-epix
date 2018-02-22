@@ -16,8 +16,8 @@ import time
 # - parsers
 parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016. Use MPI!')
 parser.add_argument('-r', '--run', type=int, help='run number to process')
-parser.add_argument('-s','--SHOTS',type=int,default=100,help='run number')
-parser.add_argument('-e','--epix_num',type=int,default=1,help='epix number')
+parser.add_argument('-s','--SHOTS',type=int,default=1000000, help='max number of shots to process')
+parser.add_argument('-e','--epix_num',type=int,default=1, help='epix number')
 args = parser.parse_args()
 
 run      = args.run
@@ -33,7 +33,7 @@ photon_adus = 115.          # parameter for the photon routine
 ds_string = 'exp=xcslr0016:run=%s:smd' % args.run#:dir=/reg/d/ffb/xcs/xcslr0016/xtc:live' % args.run
 print 'Processing: %s' % ds_string
 ds = psana.MPIDataSource(ds_string)
-#ds.break_after(shots)
+ds.break_after(shots)
 
 smldata = ds.small_data('/reg/d/psdm/xcs/xcslr0016/scratch/epix/epix_r%04d_s%d_e%.h5' % (run,shots,epix_num))
 epix    = psana.Detector('epix_%d'%epix_num)
@@ -61,7 +61,10 @@ def gasdet_energy(event):
 # - main loop
 t0 = time.time()
 for ie, evt in enumerate(ds.events()):
+
+    # TJ says: do not do this with MPI
     #if ie >= shots: break 
+
     img     = epix.calib(evt)
     gas_det = gasdet_energy(evt)
     e_beam  = ebeam.get(evt)
