@@ -19,7 +19,7 @@ from skbeam.core.accumulators.binned_statistic import RadialBinnedStatistic, Bin
 # - parsers
 parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016. Use MPI!')
 parser.add_argument('-r', '--run', type=int, help='run number to process')
-parser.add_argument('-s','--SHOTS',type=int, default=100,help='run number')
+parser.add_argument('-s','--SHOTS',type=int, default=1000000, help='max number of shots to process')
 args = parser.parse_args()
 
 run      = args.run
@@ -28,6 +28,7 @@ shots    = args.SHOTS
 # -  create the datasourse
 ds_string = 'exp=xcslr0016:run=%s:smd' % args.run
 ds = psana.MPIDataSource(ds_string)
+ds.break_after(shots)
 cspad = psana.Detector('cspad2x2_diff')
 
 smldata = ds.small_data('/reg/d/psdm/xcs/xcslr0016/scratch/cspad/cspad_r%04d_s%d.h5' % (run,shots))
