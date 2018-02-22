@@ -35,7 +35,7 @@ print 'Processing: %s' % ds_string
 ds = psana.MPIDataSource(ds_string)
 ds.break_after(shots)
 
-smldata = ds.small_data('/reg/d/psdm/xcs/xcslr0016/scratch/epix/epix_r%04d_s%d_e%.h5' % (run,shots,epix_num))
+smldata = ds.small_data('/reg/d/psdm/xcs/xcslr0016/scratch/epix/epix_r%04d_s%d_e%d.h5' % (run,shots,epix_num))
 epix    = psana.Detector('epix_%d'%epix_num)
 ipm5    = psana.Detector('XCS-IPM-05')
 ebeam   = psana.Detector('EBeam')
@@ -55,7 +55,7 @@ for ie, evt in enumerate(ds.events()):
     #if ie >= shots: break 
     img     = epix.calib(evt)
     e_beam  = ebeam.get(evt)
-    photon_hist = np.zeros(n_hist-1)
+    photon_hist = np.zeros(n_hist)
 
     if img is not None:
         is_good        = 1
@@ -63,7 +63,7 @@ for ie, evt in enumerate(ds.events()):
         local_sum_img += np.array(img)
 	ebeam_energy   = e_beam.ebeamPhotonEnergy()
         diode          = ipm5.sum(evt)
-        photon_hist,hx = np.histogram(img[r_mask==ir], bins=np.arange(n_hist))
+        photon_hist,hx = np.histogram(img[mask.astype(np.bool)], bins=np.arange(n_hist+1))
     else:
         is_good        = 0
 	ebeam_energy   = -1
