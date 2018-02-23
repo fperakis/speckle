@@ -1,0 +1,187 @@
+#!/usr/bin/env python
+
+"""
+Creates an hdf5 file with the angular average  and the average image 
+for the CSPAD and for a given number of shots
+
+Example use:
+for mpi use this instead:
+bsub -n 12 -q psfehq -o output.txt mpirun python speckle.analyse-cspad -s 20000 -r 295
+"""
+
+import psana
+import argparse
+import numpy as np
+import time
+
+from skbeam.core.accumulators.binned_statistic import RadialBinnedStatistic, BinnedStatistic1D
+
+# - parsers
+parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016. Use MPI!')
+parser.add_argument('-r', '--run', type=int, help='run number to process')
+parser.add_argument('-s','--SHOTS',type=int, default=0,help='run number')
+parser.add_argument('--first',dest='first', type=int, default=0, help='max shots to process')
+parser.add_argument('-o', '--outname',dest='outname', type=str, required=True, help='output filename')
+
+args = parser.parse_args()
+
+run = args.run
+shots = args.SHOTS
+
+# -  create the datasourse
+ds_string = 'exp=xcslr0016:run=%s:smd' % args.run
+ds = psana.MPIDataSource(ds_string)
+smldata = ds.small_data(args.outname)
+
+mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
+
+
+############
+# EPICS INIT
+############
+# - constants and parameters
+epix_shape  = (704, 768)    # dimensions of epix (pixels)
+n_hist = 5             # length of photon histogram 
+photon_adus = 115.          # parameter for the photon routine
+
+epix = { x: psana.Detector('epix_%d'%x) for x in range(1,5)}
+ipm5 = psana.Detector('XCS-IPM-05')
+fee = psana.Detector('FEEGasDetEnergy')
+ebeam = psana.Detector('EBeam')
+
+# - initialise
+local_sum_imgs ={x: np.zeros([epix_shape[0],epix_shape[1]],dtype=int) 
+    for x in range( 1,5)}
+
+# - mask
+# make masks first
+#mask_names = { x:"mask_epix_%d.npy"%x for x in range(1,5) }
+#epix_masks = {x:np.load( mask_path +  mask_names[x]) for x in range(1,5)}
+epix_masks = { x: np.ones(epix_shape) for x in range(1,5)}
+
+############
+# CSPAD INIT
+############
+cspad = psana.Detector('cs140_diff')
+
+# - constants and parameters
+cspad_shape = (2, 185, 388)
+
+# - initialise
+cspad_sum = np.zeros(cspad_shape)
+cspad_sum2 = np.zeros(cspad_shape)# sum of squares for cspad
+cspad_summed_shots = 0
+
+# - mask
+#cspad_mask = np.load(mask_path+'mask_cspad.npy').astype(bool)
+cspad_mask = np.ones( cspad_shape) 
+
+# -- cspad geometry (Q-map)
+# need to do the qs
+#qs_path = '/reg/d/psdm/xcs/xcslr0016/scratch/geometry/q_mags.npy'
+#cspad_qs = np.load(qs_path)*mask
+cspad_qs = np.ones( cspad_shape)
+
+# -- angular integration
+cspad_radint_bins = 500
+cspad_radint = BinnedStatistic1D(cspad_qs.flatten(),
+                 statistic='mean',
+                 bins=cspad_radint_bins,
+                 range=None,
+                 mask=None)
+
+# helper
+def gasdet_energy(event):
+    f = fee.get(event)
+    if f is not None:
+        avg = np.mean([ f.f_11_ENRC(), f.f_12_ENRC(),
+                        f.f_21_ENRC(), f.f_22_ENRC() ])
+    else:
+        avg = -1.0
+    return avg
+
+# - main loop
+t0 = time.time()
+seen_evts = 0
+count = 0
+for ie, evt in enumerate(ds.events()):
+    if ie < args.first:
+        print ("Skipping event %d/%d"%(ie+1, args.first))
+        continue
+
+    if seen_evts == args.SHOTS:
+        print("Reached max number of events!")
+        break
+
+    seen_evts += 1    
+
+####################   
+#   EPICS detectors
+####################   
+    imgs  = { x: epix[x].calib(evt) for x in range( 1,5)}
+    photon_hist = { 'epix_%d'%x: np.zeros(n_hist-1) for x in range( 1,5) }
+
+    #gas_det = gasdet_energy(evt)
+    e_beam  = ebeam.get(evt)
+   
+    if all( [ I is not None for I in imgs] ): 
+        is_good  = 1
+        for x in range(1,5):
+#           keep the running sums for each imgs
+            local_sum_imgs[x] += np.array(imgs[x]).astype(int)
+#           histograms           
+            photon_img = epix[x].photons(evt, adu_per_photon=photon_adus)
+            #photon_hist[x] = np.histogram(phot_img[r_mask==ir], bins=np.arange(n_hist))[0]
+            photon_hist['epix_%d'%x] = np.histogram(photon_img, bins=np.arange(n_hist))[0]
+
+        ebeam_energy = e_beam.ebeamPhotonEnergy()
+        diode = ipm5.sum(evt)
+        #photon_hist,hx =np.histogram(imgs[1][r_mask==ir], bins=np.arange(n_hist)) 
+    else:
+        is_good = 0
+        ebeam_energy = -1
+        diode = -1
+
+    smldata.event({'histogram' : photon_hist })
+    
+    #smldata.event(histogram = photon_hist,
+    smldata.event(good_shots = is_good,
+                  ipm5_diode = diode,
+                  #gas_detector = gas_det,
+                  e_energy = ebeam_energy) 
+################  
+  
+###################
+#   CSPAD detectors
+###################
+    cspad_calib = cspad.calib(evt)
+    if cspad_calib is not None:
+        cspad_sum  += cspad_calib
+        cspad_sum2  += cspad_calib**2
+        cspad_summed_shots += 1
+        cspad_lo = cspad_radint(cspad_calib.flatten())
+    else:
+        cspad_lo = np.zeros(cspad_radint_bins)
+
+    smldata.event({'cspad' : {'lineout' : cspad_lo}})
+################  
+    
+    print '%d | %.2f Hz (per core)' % (ie, 1./(time.time()-t0))
+    t0 = time.time()
+    
+    count += 1
+    print("processed %d / %d images"\
+        %( count , (ie +1 - args.first) ))
+
+epix_sum_imgs = {'epix_%d'%x: smldata.sum(local_sum_imgs[x])*epix_masks[x] 
+    for  x in range(1,5) }
+smldata.save( {'epix_sum':epix_sum_imgs})
+
+#smldata.sum(cspad_sum)
+#smldata.sum(cspad_summed_shots)
+
+smldata.save({'cspad' : {'sum' : cspad_sum , 'sum2':cspad_sum2,
+               'summed_shots' : cspad_summed_shots}})
+#if smldata.master:
+#    smldata.file_handle.close()
+#    print 'SMALLDATA DONE'
