@@ -1,0 +1,126 @@
+#!/usr/bin/env python
+
+"""
+View hdf5 file with the photon histogram  and the average image 
+for the ePIX and for a given number of shots
+
+Example use:
+view.epix -r 39
+"""
+
+import argparse
+import numpy as np
+import h5py as h
+from matplotlib import pyplot as plt
+
+# - parsers
+parser = argparse.ArgumentParser(description='View ePIX from a run of xcslr0016.')
+parser.add_argument('-r', '--run', type=int, help='run number to view')
+
+args = parser.parse_args()
+
+run = args.run
+
+# masks
+mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
+# name template, assumes convention epix1, epix2, epix3, epix4
+epix_mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
+
+# - constants and parameters
+epix_shape  = (704, 768)    # dimensions of epix (pixels)
+photon_adus = 115.          # parameter for the photon routine
+cspad_shape = (2, 185, 388)
+n_pix = epix_shape[0]*epix_shape[1]
+
+# -- cspad data
+fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL.tbl' % (run)
+f = h.File(fname, 'r')
+epix_sum = []
+epix_hist = []
+epix_photon_hist = []
+for i in range(1, 5):
+    epix_sum.append(f['epix_sum/epix_%d' % i][:])
+    epix_hist.append(f['raw_histogram/epix_%d' % i][:])
+    epix_photon_hist.append(f['histogram/epix_%d' % i][:])
+n_shots = f['cspad/summed_shots'][0]
+f.close()
+
+# photon probability
+def photon_probability(beta, kbar):
+    M = 1./beta
+    p1 = M*(1+M/kbar)**(-1)*(1+kbar/M)**(-M)
+    p2 = M*(M+1)/2*(1+M/kbar)**(-2)*(1+kbar/M)**(-M)
+    return p1, p2
+kbar_est = np.logspace(-6, -1, 5)
+p1_0, p2_0 = photon_probability(1e-6, kbar_est)
+p1_1, p2_1 = photon_probability(1, kbar_est)
+
+print "plotting ePIX data from %s" % fname
+
+# plot figure
+plt.figure(figsize=(13, 13))
+plt.suptitle('run %d' % run)
+for i in range(4):
+    ax = plt.subplot(2,2,i+1)
+    im = ax.imshow(epix_sum[i]/float(n_shots), vmin=0, vmax=1, interpolation='nearest')
+    plt.title('epix %d' % (i+1))
+#plt.colorbar(im)
+plt.xticks()
+plt.tight_layout()
+
+plt.savefig('../figures/r%04d_epix_fig1.png' % run, dpi=300)
+print "saved figure r%04d_epix_fig1.png" % run
+
+for i in range(4):
+    plt.figure(figsize=(13, 10))
+    ax = plt.subplot(2,2,1)
+    ax.plot(np.average(epix_hist[i], axis=0)/float(n_pix))
+    plt.yscale('log', nonposy='clip')
+    plt.axvline(x=photon_adus, ls='--', color='k')
+    plt.title('run %d' % run)
+    plt.ylabel(r'probability [$n/n_{tot}$]')
+    plt.xlabel('I [ADU]')
+  
+    avg_photon_hist = np.average(epix_photon_hist[i], axis=0)
+    kbar_avg = avg_photon_hist[1]/float(n_pix) + 2*avg_photon_hist[2]/float(n_pix)
+    p1 = epix_photon_hist[i][:,1]/float(n_pix)
+    p2 = epix_photon_hist[i][:,2]/float(n_pix)
+    p3 = epix_photon_hist[i][:,3]/float(n_pix)
+    kbar = p1 + 2*p2
+    #beta_est = (2*p2/p1-kbar)/(kbar*(1-2*p2/p1))
+    beta_est = 2*p2[kbar > 0]/np.square(kbar[kbar > 0]) - 1
+    beta_cumsum = np.cumsum(beta_est)/np.arange(1, len(beta_est)+1)
+    
+    ax = plt.subplot(2,2,2)
+    ax.bar(np.arange(len(avg_photon_hist)) - 0.25, avg_photon_hist/float(n_pix), width=0.5)
+    plt.yscale('log', nonposy='clip')
+    plt.title('%.1e photon/pix' % kbar_avg)
+    plt.ylabel(r'probability [$n/n_{pix}$]')
+    plt.xlabel('I [photon]')
+
+    ax = plt.subplot(2,2,3)
+    ax.plot(kbar, p1, 'o', c='b')
+    ax.plot(kbar, p2, 'o', c='r')
+    #ax.plot(kbar, p3, 'o', c='g')
+    ax.plot(kbar_est, p1_1, c='b')
+    ax.plot(kbar_est, p2_1, c='r')
+    ax.plot(kbar_est, p1_0, ls='--', c='b')
+    ax.plot(kbar_est, p2_0, ls='--', c='r')
+    plt.xscale('log', nonposy='clip')
+    plt.yscale('log', nonposy='clip')
+    plt.title('epix %d' % (i+1))
+    plt.ylabel(r'probability [$n/n_{tot}$]')
+    plt.xlabel('photon density [photon/pix]')
+
+    ax = plt.subplot(2,2,4)
+    ax.plot(np.arange(len(beta_est))+1, beta_cumsum, 'r')
+    plt.axhline(y=beta_cumsum[-1], ls='--', c='k')
+    plt.title('beta = %.2f' % beta_cumsum[-1])
+    plt.ylabel(r'$\beta$')
+    plt.xlabel('N [shots]')
+
+    plt.tight_layout()
+    plt.savefig('../figures/r%04d_epix_fig%d.png' % (run, i+2), dpi=300)
+    print "saved figure r%04d_epix_fig%d.png" % (run, i+2)
+
+plt.show()
