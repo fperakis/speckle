@@ -80,7 +80,9 @@ for i in range(4):
     plt.title('run %d' % run)
     plt.ylabel(r'probability [$n/n_{tot}$]')
     plt.xlabel('I [ADU]')
-  
+    
+    mask = np.load(mask_path + epix_mask_name % (i+1))
+    n_pix = mask.sum()
     avg_photon_hist = np.average(epix_photon_hist[i], axis=0)
     kbar_avg = avg_photon_hist[1]/float(n_pix) + 2*avg_photon_hist[2]/float(n_pix)
     p1 = epix_photon_hist[i][:,1]/float(n_pix)
@@ -88,7 +90,8 @@ for i in range(4):
     p3 = epix_photon_hist[i][:,3]/float(n_pix)
     kbar = p1 + 2*p2
     #beta_est = (2*p2/p1-kbar)/(kbar*(1-2*p2/p1))
-    beta_est = 2*p2[kbar > 0]/np.square(kbar[kbar > 0]) - 1
+    kbar_limit = 4e-3
+    beta_est = 2*p2[kbar > kbar_limit]/np.square(kbar[kbar > kbar_limit]) - 1
     beta_cumsum = np.cumsum(beta_est)/np.arange(1, len(beta_est)+1)
     
     ax = plt.subplot(2,2,2)
@@ -108,16 +111,16 @@ for i in range(4):
     ax.plot(kbar_est, p2_0, ls='--', c='r')
     plt.xscale('log', nonposy='clip')
     plt.yscale('log', nonposy='clip')
-    plt.title('epix %d' % (i+1))
+    plt.title('epix %d (%d unmasked pixels)' % (i+1, n_pix))
     plt.ylabel(r'probability [$n/n_{tot}$]')
-    plt.xlabel('photon density [photon/pix]')
+    plt.xlabel(r'photon density $\bar{k}$ [photon/pix]')
 
     ax = plt.subplot(2,2,4)
     ax.plot(np.arange(len(beta_est))+1, beta_cumsum, 'r')
     plt.axhline(y=beta_cumsum[-1], ls='--', c='k')
     plt.title('beta = %.2f' % beta_cumsum[-1])
     plt.ylabel(r'$\beta$')
-    plt.xlabel('N [shots]')
+    plt.xlabel(r'shots with $\bar{k}$ > %.0e' % kbar_limit)
 
     plt.tight_layout()
     plt.savefig('../figures/r%04d_epix_fig%d.png' % (run, i+2), dpi=300)
