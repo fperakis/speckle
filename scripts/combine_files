@@ -18,7 +18,7 @@ def combine_files(run):
     dirpath = '/reg/d/psdm/xcs/xcslr0016/scratch/multi_dump/'
     newfname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%s_ALL.tbl'%(str(run).zfill(4))
     
-    fnames = glob.glob(  "%s/*r%s*.h5"%(dirpath, str(run).zfill(4)) )
+    fnames = glob.glob(  "%s/speckle_*r%s*.h5"%(dirpath, str(run).zfill(4)) )
 
     if not fnames:
         print("No filenames for run %d"%run)

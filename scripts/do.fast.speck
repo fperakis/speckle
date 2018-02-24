@@ -7,15 +7,15 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016 (embarrassingly parallel)')
 parser.add_argument('-r', '--run', type=int, help='run number to process')
-parser.add_argument('-j', '--num-jobs',dest='nfiles', 
-    type=int,default=4, help='number of jobs')
+parser.add_argument('-j', '--num-jobs',dest='njobs', 
+    type=int,default=16, help='number of jobs')
 parser.add_argument('-n', '--num-events',dest='total_num_evt', type=int, 
     default=20000, help='number of events in the run...')
 
 args = parser.parse_args()
 
-evt_list = np.array_split(np.arange( args.total_num_evt), args.nfiles )
-program = "/reg/d/psdm/xcs/xcslr0016/scratch/dermen/bin/speckle.analyze"
+evt_list = np.array_split(np.arange( args.total_num_evt), args.njobs )
+program = "/reg/d/psdm/xcs/xcslr0016/scratch/bin/speckle.analyze"
 for i,evts in enumerate(evt_list):
     evt_start = evts[0]
     n_evts = len( evts)

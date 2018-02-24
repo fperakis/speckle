@@ -42,9 +42,10 @@ cspad_summed_shots = 0
 
 # - mask
 mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
-mask = np.load(mask_path+'mask_cspad.npy').astype(bool)
+mask = np.load(mask_path+'mask_r0019_cspad+borders.npy').astype(bool)
 
 # -- cspad geometry (Q-map)
+#q_mag = np.sqrt( np.sum(np.square(q), axis=2) )
 qs_path = '/reg/d/psdm/xcs/xcslr0016/scratch/geometry/q_mags.npy'
 cspad_qs = np.load(qs_path)*mask
 
