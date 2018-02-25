@@ -20,25 +20,26 @@ parser.add_argument('-r', '--run', type=str, default=None,
                     help='run number to view, can also be a series of runs (e.g. 1,3,5-10,20,22)')
 parser.add_argument('-c', '--combine', type=str, default="2-3",
                     help='combine epix detectors in analysis (default: 2-3)')
-parser.add_argument('-k', '--kbar', type=float, default=4e-3,
-                    help='set photon density threshold for beta estimation (default: 4e-3 photon/pix)')
-parser.add_argument('-n', '--kmin', type=float, default=-4.,
-                    help='set minimum logaritmic photon density for binning (default: -4)')
-parser.add_argument('-x', '--kmax', type=float, default=-1.5,
-                    help='set maximum logaritmic photon density for binning (default: -1.5)')
-parser.add_argument('-b', '--bins', type=int, default=20,
-                    help='set photon density bins for beta estimation (default: 20 bins)')
+parser.add_argument('-k', '--kmin', type=float, default=3e-3,
+                    help='set photon density threshold for beta estimation (default: 3e-3 photon/pix)')
+parser.add_argument('-x', '--kmax', type=float, default=1e-2,
+                    help='set maximum photon density for binning (default: 1e-2 photon/pix)')
+parser.add_argument('-b', '--bins', type=int, default=100,
+                    help='set number of photon density bins (default: 100 bins)')
 parser.add_argument('-m', '--masked', action="store_true",
                     help='load epix TBL files that are masked')
-parser.add_argument('-p', '--hdf5', action="store_true",
-                    help='load epix HDF5 files from mpirun save to /scratch/sellberg/')
+parser.add_argument('-p', '--mpi', action="store_true",
+                    help='load epix HDF5 files from mpirun saved to /scratch/sellberg/')
 parser.add_argument('-s', '--save', action="store_true",
                     help='save epix sums to file for masking')
 
 args = parser.parse_args()
 
+if args.masked and args.mpi:
+    print "ERROR: can only load TBL files or HDF5 files, not both. Abort.."
+    sys.exit(1)
 if args.run is None:
-    print "ERROR: Run number must be provided. Abort.."
+    print "ERROR: run number must be provided. Abort.."
     sys.exit(1)
 else:
     #run = args.run
@@ -60,7 +61,6 @@ for s in epix_string.split(','):
         else:
             epix += [int(s)]
 
-kbar_limit = args.kbar
 kbar_min = args.kmin
 kbar_max = args.kmax
 n_bins = args.bins
@@ -68,7 +68,8 @@ n_bins = args.bins
 # masks
 mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
 # name template, assumes convention epix1, epix2, epix3, epix4
-epix_mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
+#epix_mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
+epix_mask_name = "mask_epix%d.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
 
 # - constants and parameters
 epix_shape  = (704, 768)    # dimensions of epix (pixels)
@@ -81,13 +82,13 @@ epix_sum = []
 epix_hist = []
 epix_photon_hist = []
 for r in runs:
-    if args.hdf5:
+    if args.mpi:
         fname = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg/run%d_mpirun_ALL.h5' % (r)
-    if args.masked:
+    elif args.masked:
         fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL_masked.tbl' % (r)
     else:
         fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL.tbl' % (r)
-    print "analyzing ePIX data from %s" % fname
+    print "loading ePIX data from %s" % fname
     f = h.File(fname, 'r')
     if r == runs[0]:
         for i in range(1, 5):
@@ -131,7 +132,7 @@ p1_1, p2_1 = photon_probability(1, kbar_est)
 
 # bin photon histograms
 def kbar_binning(hist, kbar, n_bins):
-    kbar_bins = np.logspace(kbar_min, kbar_max, n_bins+1)
+    kbar_bins = np.logspace(-6, -1, n_bins+1)
     kbar_bin_centers = np.array([(kbar_bins[i]+kbar_bins[i+1])/2 for i in range(n_bins)])
     hist_avg = np.zeros((n_bins,) + hist.shape[1:])
     for i in range(n_bins):
@@ -184,16 +185,17 @@ for i in range(4):
     p3 = epix_photon_hist[i][:,3]/float(n_pix)
     kbar = p1 + 2*p2
     #beta_est = (2*p2/p1-kbar)/(kbar*(1-2*p2/p1))
-    beta_est = 2*p2[kbar > kbar_limit]/np.square(kbar[kbar > kbar_limit]) - 1
+    beta_est = 2*p2[kbar > kbar_min]/np.square(kbar[kbar > kbar_min]) - 1
     beta_cumsum = np.cumsum(beta_est)/np.arange(1, len(beta_est)+1)
     # only shots with 2-photon events
-    beta_est_p2 = 2*p2[np.logical_and(kbar > kbar_limit, p2 > 0)]/np.square(kbar[np.logical_and(kbar > kbar_limit, p2 > 0)]) - 1
+    beta_est_p2 = 2*p2[np.logical_and(kbar > kbar_min, p2 > 0)]/np.square(kbar[np.logical_and(kbar > kbar_min, p2 > 0)]) - 1
     beta_cumsum_p2 = np.cumsum(beta_est_p2)/np.arange(1, len(beta_est_p2)+1)
     # binned photon histograms
     kbar_bins, photon_hist_bins = kbar_binning(epix_photon_hist[i], kbar, n_bins)
     p1_bins = photon_hist_bins[:,1]/float(n_pix)
     p2_bins = photon_hist_bins[:,2]/float(n_pix)
     beta_bins = 2*p2_bins/np.square(kbar_bins) - 1
+    beta_bin_selection = np.logical_and(kbar_bins >= kbar_min, kbar_bins <= kbar_max)
     
     ax = plt.subplot(2,2,2)
     ax.bar(np.arange(len(avg_photon_hist)) - 0.25, avg_photon_hist/float(n_pix), width=0.5)
@@ -203,8 +205,8 @@ for i in range(4):
     plt.xlabel('I [photon]')
 
     ax = plt.subplot(2,2,3)
-    ax.plot(kbar, p1, '.', c='b')
-    ax.plot(kbar, p2, '.', c='r')
+    ax.plot(kbar, p1, 'x', c='b')
+    ax.plot(kbar, p2, 'x', c='r')
     #ax.plot(kbar, p3, 'o', c='g')
     ax.plot(kbar_bins, p1_bins, 'o', c='b')
     ax.plot(kbar_bins, p2_bins, 'o', c='r')
@@ -212,7 +214,8 @@ for i in range(4):
     ax.plot(kbar_est, p2_1, c='r')
     ax.plot(kbar_est, p1_0, ls='--', c='b')
     ax.plot(kbar_est, p2_0, ls='--', c='r')
-    plt.axvline(x=kbar_limit, ls='--', color='k')
+    plt.axvline(x=kbar_min, ls='--', color='k')
+    #plt.axvline(x=kbar_max, ls='--', color='k')
     plt.xscale('log', nonposy='clip')
     plt.yscale('log', nonposy='clip')
     plt.title('epix %d (%d unmasked pixels)' % (i+1, n_pix))
@@ -224,12 +227,12 @@ for i in range(4):
     ax.plot(np.arange(len(beta_est_p2))+1, beta_cumsum_p2, 'b')
     plt.axhline(y=beta_cumsum[-1], ls='--', c='r')
     plt.axhline(y=beta_cumsum_p2[-1], ls='--', c='b')
-    plt.axhline(y=np.average(beta_bins), ls='--', c='k')
+    plt.axhline(y=np.average(beta_bins[beta_bin_selection]), ls='--', c='k')
     #plt.ylim((-0.1, 1))
-    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins))), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
-    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum[-1], np.std(beta_est)/np.sqrt(len(beta_est))), r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum_p2[-1], np.std(beta_est_p2)/np.sqrt(len(beta_est_p2))), r'$\beta$ = %.3f +/- %.3f' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins)))])
+    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins[beta_bin_selection]), np.std(beta_bins[beta_bin_selection])/np.sqrt(len(beta_bins[beta_bin_selection]))), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
+    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum[-1], np.std(beta_est)/np.sqrt(len(beta_est))), r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum_p2[-1], np.std(beta_est_p2)/np.sqrt(len(beta_est_p2))), r'$\beta$ = %.3f +/- %.3f' % (np.average(beta_bins[beta_bin_selection]), np.std(beta_bins[beta_bin_selection])/np.sqrt(len(beta_bins[beta_bin_selection])))])
     plt.ylabel(r'$\beta$')
-    plt.xlabel(r'$N$ [shots] with $\bar{k}$ > %.0e photon/pix' % kbar_limit)
+    plt.xlabel(r'$N$ [shots] with $\bar{k}$ > %.0e photon/pix' % kbar_min)
     
     plt.tight_layout()
     if len(runs) == 1:
@@ -248,6 +251,9 @@ for i in range(4):
     fig_ax.set_xlabel(r'$\bar{k}$ [photon/pix]')
     fig_ax.set_ylabel(r'$\beta$')
     fig_ax.set_ylim([-0.4, 1.0])
+    fig_ax.set_xscale('log', nonposy='clip')
+    fig_ax.axvline(x=kbar_min, ls='-', color='k')
+    fig_ax.axvline(x=kbar_max, ls='-', color='k')
     fig_ax.grid(color='k', linestyle='--', linewidth=1)
 
 if len(epix) > 1:
@@ -278,7 +284,7 @@ if len(epix) > 1:
     ax.plot(np.average(epix_chist, axis=0)/float(n_pix))
     plt.yscale('log', nonposy='clip')
     plt.axvline(x=photon_adus, ls='--', color='k')
-    plt.title('run %s' % run_string)
+    plt.title('run %s - %d shots' % (run_string, epix_cphoton_hist.shape[0]))
     plt.ylabel(r'probability [$n/n_{tot}$]')
     plt.xlabel('I [ADU]')
     
@@ -289,16 +295,17 @@ if len(epix) > 1:
     p3 = epix_cphoton_hist[:,3]/float(n_pix)
     kbar = p1 + 2*p2
     #beta_est = (2*p2/p1-kbar)/(kbar*(1-2*p2/p1))
-    beta_est = 2*p2[kbar > kbar_limit]/np.square(kbar[kbar > kbar_limit]) - 1
+    beta_est = 2*p2[kbar > kbar_min]/np.square(kbar[kbar > kbar_min]) - 1
     beta_cumsum = np.cumsum(beta_est)/np.arange(1, len(beta_est)+1)
     # only shots with 2-photon events
-    beta_est_p2 = 2*p2[np.logical_and(kbar > kbar_limit, p2 > 0)]/np.square(kbar[np.logical_and(kbar > kbar_limit, p2 > 0)]) - 1
+    beta_est_p2 = 2*p2[np.logical_and(kbar > kbar_min, p2 > 0)]/np.square(kbar[np.logical_and(kbar > kbar_min, p2 > 0)]) - 1
     beta_cumsum_p2 = np.cumsum(beta_est_p2)/np.arange(1, len(beta_est_p2)+1)
     # binned photon histograms
     kbar_bins, photon_hist_bins = kbar_binning(epix_cphoton_hist, kbar, n_bins)
     p1_bins = photon_hist_bins[:,1]/float(n_pix)
     p2_bins = photon_hist_bins[:,2]/float(n_pix)
     beta_bins = 2*p2_bins/np.square(kbar_bins) - 1
+    beta_bin_selection = np.logical_and(kbar_bins >= kbar_min, kbar_bins <= kbar_max)
     
     ax = plt.subplot(2,3,3)
     ax.bar(np.arange(len(avg_photon_hist)) - 0.25, avg_photon_hist/float(n_pix), width=0.5)
@@ -315,7 +322,8 @@ if len(epix) > 1:
     ax.plot(kbar_est, p2_1, c='r')
     ax.plot(kbar_est, p1_0, ls='--', c='b')
     ax.plot(kbar_est, p2_0, ls='--', c='r')
-    plt.axvline(x=kbar_limit, ls='--', color='k')
+    plt.axvline(x=kbar_min, ls='--', color='k')
+    #plt.axvline(x=kbar_max, ls='--', color='k')
     plt.xscale('log', nonposy='clip')
     plt.yscale('log', nonposy='clip')
     plt.title('epix %s (%d unmasked pixels)' % (epix_string, n_pix))
@@ -330,7 +338,8 @@ if len(epix) > 1:
     ax.plot(kbar_est, p2_1, c='r')
     ax.plot(kbar_est, p1_0, ls='--', c='b')
     ax.plot(kbar_est, p2_0, ls='--', c='r')
-    plt.axvline(x=kbar_limit, ls='--', color='k')
+    plt.axvline(x=kbar_min, ls='--', color='k')
+    plt.axvline(x=kbar_max, ls='--', color='k')
     plt.xscale('log', nonposy='clip')
     plt.yscale('log', nonposy='clip')
     plt.title(r'binned between %.1e < $\bar{k}$ < %.1e photon/pix' % (10**kbar_min, 10**kbar_max))
@@ -342,12 +351,12 @@ if len(epix) > 1:
     ax.plot(np.arange(len(beta_est_p2))+1, beta_cumsum_p2, 'b')
     plt.axhline(y=beta_cumsum[-1], ls='--', c='r')
     plt.axhline(y=beta_cumsum_p2[-1], ls='--', c='b')
-    plt.axhline(y=np.average(beta_bins), ls='--', c='k')
-    #ax.set_title("\n".join([r'$\beta$ = %.2f from shots with $\bar{k}$ > %.0e photon/pix,' % (beta_cumsum[-1], kbar_limit), r'$\beta$ = %.2f from shots with 2-photon events,' % (beta_cumsum_p2[-1]), r'$\beta$ = %.2f +/- %.2f from binning' % (np.average(beta_bins), np.std(beta_bins))]))
-    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins))), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
-    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum[-1], np.std(beta_est)/np.sqrt(len(beta_est))), r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum_p2[-1], np.std(beta_est_p2)/np.sqrt(len(beta_est_p2))), r'$\beta$ = %.3f +/- %.3f' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins)))])
+    plt.axhline(y=np.average(beta_bins[beta_bin_selection]), ls='--', c='k')
+    #ax.set_title("\n".join([r'$\beta$ = %.2f from shots with $\bar{k}$ > %.0e photon/pix,' % (beta_cumsum[-1], kbar_min), r'$\beta$ = %.2f from shots with 2-photon events,' % (beta_cumsum_p2[-1]), r'$\beta$ = %.2f +/- %.2f from binning' % (np.average(beta_bins), np.std(beta_bins))]))
+    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins[beta_bin_selection]), np.std(beta_bins[beta_bin_selection])/np.sqrt(len(beta_bins[beta_bin_selection]))), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
+    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum[-1], np.std(beta_est)/np.sqrt(len(beta_est))), r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum_p2[-1], np.std(beta_est_p2)/np.sqrt(len(beta_est_p2))), r'$\beta$ = %.3f +/- %.3f' % (np.average(beta_bins[beta_bin_selection]), np.std(beta_bins[beta_bin_selection])/np.sqrt(len(beta_bins[beta_bin_selection])))])
     plt.ylabel(r'$\beta$')
-    plt.xlabel(r'$N$ [shots] with $\bar{k}$ > %.0e photon/pix' % kbar_limit)
+    plt.xlabel(r'$N$ [shots] with $\bar{k}$ > %.0e photon/pix' % kbar_min)
 
     plt.tight_layout()
     if len(runs) == 1:
