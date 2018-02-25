@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+
+"""
+Process run using mpirun to produce  hdf5 file with the photon histogram and the average image for the ePIX and CSPAD
+
+Example use:
+do.speckle -r 39,42-43
+"""
+
+import argparse
+import numpy as np
+import sys, os, re
+
+# - parsers
+parser = argparse.ArgumentParser(description='Submit runs from xcslr0016 using mpirun.')
+parser.add_argument('-r', '--run', type=str, default=None,
+                    help='run number to process, can also be a series of runs (e.g. 1,3,5-10,20,22)')
+parser.add_argument('-n', '--cores', type=int, default=8,
+                    help='set number of cores per job (default: 8 cores)')
+parser.add_argument('-q', '--queue', type=str, default='psfehhiprioq',
+                    help='set queue to submit to (default: psfehhiprioq)')
+parser.add_argument('-s', '--shots', type=int, default=-1,
+                    help='set maximum number of shots to process (default: all shots)')
+
+args = parser.parse_args()
+
+if args.run is None:
+    print "ERROR: Run number must be provided. Abort.."
+    sys.exit(1)
+else:
+    #run = args.run
+    runs = []
+    run_string = args.run
+    for s in run_string.split(','):
+        if "-" in s:
+            rmin, rmax = s.split('-')
+            runs += range(int(rmin), int(rmax)+1)
+        else:
+            runs += [int(s)]
+
+n_cores = args.cores
+queue = args.queue
+n_shots = args.shots
+
+# paths
+write_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg'
+bin_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/bin'
+log_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg/logs'
+
+# submit runs
+for run in runs:
+    print "submitting run %d.." % run
+    if n_shots >= 0:
+        submit_string = "bsub -n %d -q %s -o %s/r%04d_output.log mpirun python %s/speckle.analyze -s %d -r %d -o %s/r%04d_mpirun_%d.h5" % (n_cores, queue, log_dir, run, bin_dir, n_shots, run, write_dir, run, n_shots)
+    else:
+        submit_string = "bsub -n %d -q %s -o %s/r%04d_output.log mpirun python %s/speckle.analyze -s %d -r %d -o %s/r%04d_mpirun_ALL.h5" % (n_cores, queue, log_dir, run, bin_dir, n_shots, run, write_dir, run)
+    #print submit_string
+    os.system(submit_string)
