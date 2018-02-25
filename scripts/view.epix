@@ -22,12 +22,18 @@ parser.add_argument('-c', '--combine', type=str, default="2-3",
                     help='combine epix detectors in analysis (default: 2-3)')
 parser.add_argument('-k', '--kbar', type=float, default=4e-3,
                     help='set photon density threshold for beta estimation (default: 4e-3 photon/pix)')
-parser.add_argument('-m', '--kmin', type=float, default=-4.,
+parser.add_argument('-n', '--kmin', type=float, default=-4.,
                     help='set minimum logaritmic photon density for binning (default: -4)')
 parser.add_argument('-x', '--kmax', type=float, default=-1.5,
                     help='set maximum logaritmic photon density for binning (default: -1.5)')
 parser.add_argument('-b', '--bins', type=int, default=20,
                     help='set photon density bins for beta estimation (default: 20 bins)')
+parser.add_argument('-m', '--masked', action="store_true",
+                    help='load epix TBL files that are masked')
+parser.add_argument('-p', '--hdf5', action="store_true",
+                    help='load epix HDF5 files from mpirun save to /scratch/sellberg/')
+parser.add_argument('-s', '--save', action="store_true",
+                    help='save epix sums to file for masking')
 
 args = parser.parse_args()
 
@@ -75,7 +81,12 @@ epix_sum = []
 epix_hist = []
 epix_photon_hist = []
 for r in runs:
-    fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL.tbl' % (r)
+    if args.hdf5:
+        fname = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg/run%d_mpirun_ALL.h5' % (r)
+    if args.masked:
+        fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL_masked.tbl' % (r)
+    else:
+        fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL.tbl' % (r)
     print "analyzing ePIX data from %s" % fname
     f = h.File(fname, 'r')
     if r == runs[0]:
@@ -90,7 +101,23 @@ for r in runs:
             epix_hist[i-1] = np.concatenate((epix_hist[i-1], f['raw_histogram/epix_%d' % i][:]), axis=0)
             epix_photon_hist[i-1] = np.concatenate((epix_photon_hist[i-1], f['histogram/epix_%d' % i][:]), axis=0)
         n_shots += f['cspad/summed_shots'][0]
+    print "cspad/summed_shots", n_shots
+    print "raw_histogram", epix_hist[0].shape[0]
+    print "photon_histogram", epix_photon_hist[0].shape[0]
     f.close()
+
+if args.save:
+    fname = '../combined/run%s_epix_sum.h5' % (run_string)
+    if not os.path.exists(fname):
+        f = h.File(fname, 'a')
+        g = f.create_group('epix_sum')
+        for i in range(1, 5):
+            g.create_dataset('epix_%d' % i, data=epix_sum[i-1])
+        g.create_dataset('summed_shots', data=np.array([n_shots]))
+        f.close()
+        print "wrote epix data to %s" % fname
+    else:
+        print "%s already exists, skipping saving data.." % fname
 
 # photon probability
 def photon_probability(beta, kbar):
@@ -129,11 +156,13 @@ if len(runs) == 1:
     png_name = '../figures/r%04d_epix_fig1.png' % runs[0]
 else:
     png_name = '../figures/run%s_epix_fig1.png' % run_string
+if args.masked:
+    png_name = re.sub('.png', '_masked.png', png_name)
 plt.savefig(png_name, dpi=300)
 print "saved %s" % png_name
 
 #plot statistics
-fig = plt.figure(num=7, figsize=(6, 6))
+fig = plt.figure(num=7, figsize=(13, 13))
 
 for i in range(4):
     mask = np.load(mask_path + epix_mask_name % (i+1))
@@ -144,7 +173,7 @@ for i in range(4):
     ax.plot(np.average(epix_hist[i], axis=0)/float(n_pix))
     plt.yscale('log', nonposy='clip')
     plt.axvline(x=photon_adus, ls='--', color='k')
-    plt.title('run %s' % run_string)
+    plt.title('run %s - %d shots' % (run_string, epix_photon_hist[i-1].shape[0]))
     plt.ylabel(r'probability [$n/n_{tot}$]')
     plt.xlabel('I [ADU]')
     
@@ -174,8 +203,8 @@ for i in range(4):
     plt.xlabel('I [photon]')
 
     ax = plt.subplot(2,2,3)
-    ax.plot(kbar, p1, '.', c='k')
-    ax.plot(kbar, p2, '.', c='k')
+    ax.plot(kbar, p1, '.', c='b')
+    ax.plot(kbar, p2, '.', c='r')
     #ax.plot(kbar, p3, 'o', c='g')
     ax.plot(kbar_bins, p1_bins, 'o', c='b')
     ax.plot(kbar_bins, p2_bins, 'o', c='r')
@@ -197,8 +226,8 @@ for i in range(4):
     plt.axhline(y=beta_cumsum_p2[-1], ls='--', c='b')
     plt.axhline(y=np.average(beta_bins), ls='--', c='k')
     #plt.ylim((-0.1, 1))
-    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins), np.std(beta_bins)), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
-    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.2f' % beta_cumsum[-1], r'$\beta$ = %.2f' % beta_cumsum_p2[-1], r'$\beta$ = %.2f +/- %.2f' % (np.average(beta_bins), np.std(beta_bins))])
+    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins))), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
+    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum[-1], np.std(beta_est)/np.sqrt(len(beta_est))), r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum_p2[-1], np.std(beta_est_p2)/np.sqrt(len(beta_est_p2))), r'$\beta$ = %.3f +/- %.3f' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins)))])
     plt.ylabel(r'$\beta$')
     plt.xlabel(r'$N$ [shots] with $\bar{k}$ > %.0e photon/pix' % kbar_limit)
     
@@ -207,13 +236,15 @@ for i in range(4):
         png_name = '../figures/r%04d_epix_fig%d.png' % (runs[0], i+2)
     else:
         png_name = '../figures/run%s_epix_fig%d.png' % (run_string, i+2)
+    if args.masked:
+        png_name = re.sub('.png', '_masked.png', png_name)
     plt.savefig(png_name, dpi=300)
     print "saved %s" % (png_name)
     
     # plot figure for kbar dependence
     fig_ax = fig.add_subplot(1,1,1)
     fig_ax.set_title(r'run %s - $\bar{k}$ dependence' % run_string)
-    fig_ax.plot(kbar_bins, beta_bins, 'o', label='epix%d' % (i+1))
+    fig_ax.plot(kbar_bins, beta_bins, '-o', label='epix%d' % (i+1))
     fig_ax.set_xlabel(r'$\bar{k}$ [photon/pix]')
     fig_ax.set_ylabel(r'$\beta$')
     fig_ax.set_ylim([-0.4, 1.0])
@@ -240,7 +271,7 @@ if len(epix) > 1:
     ax = plt.subplot(2,3,1)
     im = ax.imshow(epix_csum/float(n_shots)/len(epix), vmin=0, vmax=1, interpolation='nearest')
     plt.colorbar(im, pad=0.01)
-    plt.title('epix %s' % epix_string)
+    plt.title('epix %s [ADU/shot]' % epix_string)
     plt.xticks()
 
     ax = plt.subplot(2,3,2)
@@ -313,8 +344,8 @@ if len(epix) > 1:
     plt.axhline(y=beta_cumsum_p2[-1], ls='--', c='b')
     plt.axhline(y=np.average(beta_bins), ls='--', c='k')
     #ax.set_title("\n".join([r'$\beta$ = %.2f from shots with $\bar{k}$ > %.0e photon/pix,' % (beta_cumsum[-1], kbar_limit), r'$\beta$ = %.2f from shots with 2-photon events,' % (beta_cumsum_p2[-1]), r'$\beta$ = %.2f +/- %.2f from binning' % (np.average(beta_bins), np.std(beta_bins))]))
-    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins), np.std(beta_bins)), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
-    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.2f' % beta_cumsum[-1], r'$\beta$ = %.2f' % beta_cumsum_p2[-1], r'$\beta$ = %.2f +/- %.2f' % (np.average(beta_bins), np.std(beta_bins))])
+    ax.set_title("\n".join([r'$\beta$ = %.2f +/- %.2f from binning,' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins))), r'$\beta$ = %.2f (all), $\beta$ = %.2f (2-photon events)' % (beta_cumsum[-1], beta_cumsum_p2[-1])]))
+    plt.legend(['cumulative sum', 'cumulative sum\n(2-photon events)', r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum[-1], np.std(beta_est)/np.sqrt(len(beta_est))), r'$\beta$ = %.3f +/- %.3f' % (beta_cumsum_p2[-1], np.std(beta_est_p2)/np.sqrt(len(beta_est_p2))), r'$\beta$ = %.3f +/- %.3f' % (np.average(beta_bins), np.std(beta_bins)/np.sqrt(len(beta_bins)))])
     plt.ylabel(r'$\beta$')
     plt.xlabel(r'$N$ [shots] with $\bar{k}$ > %.0e photon/pix' % kbar_limit)
 
@@ -323,6 +354,8 @@ if len(epix) > 1:
         png_name = '../figures/r%04d_epix_fig6.png' % (runs[0])
     else:
         png_name = '../figures/run%s_epix_fig6.png' % (run_string)
+    if args.masked:
+        png_name = re.sub('.png', '_masked.png', png_name)
     plt.savefig(png_name, dpi=300)
     print "saved %s" % (png_name)
 
@@ -333,6 +366,8 @@ if len(runs) == 1:
     png_name = '../figures/r%04d_epix_fig7.png' % (runs[0])
 else:
     png_name = '../figures/run%s_epix_fig7.png' % (run_string)
+if args.masked:
+    png_name = re.sub('.png', '_masked.png', png_name)
 fig.savefig(png_name, dpi=300)
 print "saved %s" % (png_name)
 

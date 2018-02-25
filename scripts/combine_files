@@ -16,7 +16,7 @@ accumulant_paths = ["/cspad/sum",
 
 def combine_files(run):
     dirpath = '/reg/d/psdm/xcs/xcslr0016/scratch/multi_dump/'
-    newfname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%s_ALL.tbl'%(str(run).zfill(4))
+    newfname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%s_ALL_masked.tbl'%(str(run).zfill(4))
     
     fnames = glob.glob(  "%s/speckle_*r%s*.h5"%(dirpath, str(run).zfill(4)) )
 
@@ -49,21 +49,35 @@ def combine_files(run):
         for fname in fnames[1:]:
             next_tbl = tables.File( fname, 'r')
             next_array_paths = get_array_paths( next_tbl)
-            if not all( [ path in array_paths for path in next_array_paths] ):
-                print("Incomplete Pytable: %s"%fname)
-                print("\tMissing the following Earrays") 
-                print next_array_paths,'\n'
-                print array_paths
-                os.remove(newfname)
-                return None
+
+            #if not all( [ path in array_paths for path in next_array_paths] ):
+            #    print("Incomplete Pytable: %s"%fname)
+            #    print("\tMissing the following Earrays") 
+            #    print next_array_paths,'\n'
+            #    print array_paths
+            #    os.remove(newfname)
+            #    return None
             
             for path in next_array_paths:
-                if path in accumulant_paths:
+
+                try:
+                    path_node = tbl.get_node(path)
+                except tables.NoSuchNodeError as e:
+                    print 'no %s in base table' % path
                     continue
-                tbl.get_node(path).append( next_tbl.get_node(path)[:] ) 
-            for path in accumulant_paths:
-                tbl.get_node(path)[:] += next_tbl.get_node(path)[:]
+                try:
+                    next_path_node = next_tbl.get_node(path)
+                except tables.NoSuchNodeError as e:
+                    print 'no %s in adding table' % path
+                    continue
+
+                if path in accumulant_paths:
+                    tbl.get_node(path)[:] += next_tbl.get_node(path)[:]
+                else:
+                    tbl.get_node(path).append( next_tbl.get_node(path)[:] ) 
+
             next_tbl.close()
+
 if __name__ == "__main__":
     run = int (sys.argv[1])
     combine_files(run)

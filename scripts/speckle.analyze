@@ -36,7 +36,8 @@ smldata = ds.small_data(args.outname)
 
 mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
 # name template, assumes convention epix1, epix2, epix3, epix4
-mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
+#mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
+mask_name = "mask_epix%d.npy"  # e.g. mask_epix1.npy .. mask_epix4.npy
 
 ############
 # EPICS INIT
@@ -143,8 +144,8 @@ for ie, evt in enumerate(ds.events()):
 #           histograms           
             photon_img = epix[x].photons(evt, adu_per_photon=photon_adus, mask=epix_masks[x].astype(np.uint8))
             #photon_hist[x] = np.histogram(phot_img[r_mask==ir], bins=np.arange(n_hist))[0]
-            photon_hist['epix_%d'%x] = np.histogram(photon_img[epix_masks[x]], bins=np.arange(n_hist))[0]
-            raw_hist['epix_%d'%x] = np.histogram(imgs[x][epix_masks[x]], bins=np.arange(n_hist_raw))[0]
+            photon_hist['epix_%d'%x] = np.histogram(photon_img[epix_masks[x] == 1], bins=np.arange(n_hist))[0]
+            raw_hist['epix_%d'%x] = np.histogram(imgs[x][epix_masks[x] == 1], bins=np.arange(n_hist_raw))[0]
 
         ebeam_energy = e_beam.ebeamPhotonEnergy()
         dio_channels = snd_dio.peakA()
@@ -189,9 +190,9 @@ for ie, evt in enumerate(ds.events()):
     print("processed %d / %d images"\
         %( count , (ie +1 - args.first) ))
 
-epix_sum_imgs = {'epix_%d'%x: smldata.sum(local_sum_imgs[x])*epix_masks[x] 
+epix_sum_imgs = {'epix_%d'%x: smldata.sum(local_sum_imgs[x]*epix_masks[x]) 
     for  x in range(1,5) }
-smldata.save( {'epix_sum':epix_sum_imgs})
+smldata.save( {'epix_sum': epix_sum_imgs})
 
 #smldata.sum(cspad_sum)
 #smldata.sum(cspad_summed_shots)
