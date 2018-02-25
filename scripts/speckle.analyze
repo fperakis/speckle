@@ -141,10 +141,10 @@ for ie, evt in enumerate(ds.events()):
 #           keep the running sums for each imgs
             local_sum_imgs[x] += np.array(imgs[x]).astype(int)
 #           histograms           
-            photon_img = epix[x].photons(evt, adu_per_photon=photon_adus)
+            photon_img = epix[x].photons(evt, adu_per_photon=photon_adus, mask=epix_masks[x].astype(np.uint8))
             #photon_hist[x] = np.histogram(phot_img[r_mask==ir], bins=np.arange(n_hist))[0]
-            photon_hist['epix_%d'%x] = np.histogram(photon_img, bins=np.arange(n_hist))[0]
-            raw_hist['epix_%d'%x] = np.histogram(imgs[x], bins=np.arange(n_hist_raw))[0]
+            photon_hist['epix_%d'%x] = np.histogram(photon_img[epix_masks[x]], bins=np.arange(n_hist))[0]
+            raw_hist['epix_%d'%x] = np.histogram(imgs[x][epix_masks[x]], bins=np.arange(n_hist_raw))[0]
 
         ebeam_energy = e_beam.ebeamPhotonEnergy()
         dio_channels = snd_dio.peakA()
