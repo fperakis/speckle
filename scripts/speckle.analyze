@@ -21,7 +21,7 @@ from skbeam.core.accumulators.binned_statistic import RadialBinnedStatistic, Bin
 parser = argparse.ArgumentParser(description='Analyze a run of xcslr0016. Use MPI!')
 parser.add_argument('-r', '--run', type=int, required=True, help='run number to process')
 parser.add_argument('-s','--shots',type=int, default=0, help='run number')
-parser.add_argument('-g','--gain',type=float, default=115., help='ADU threshold for photonization (default: 115 ADU)')
+parser.add_argument('-g','--gain',type=float, default=149., help='ADU threshold for photonization (default: 149 ADU)')
 parser.add_argument('--first',dest='first', type=int, default=0, help='max shots to process')
 parser.add_argument('-o', '--outname',dest='outname', type=str, required=True, help='output filename')
 
@@ -41,8 +41,12 @@ mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
 #mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
 # original - fivos
 #mask_name = "mask_epix%d.npy"  # e.g. mask_epix1.npy .. mask_epix4.npy
+# original - fivos + darkmask - dermen
+#mask_name = "darkmask_w_guimask_epix%d.npy"  # e.g. mask_epix1.npy .. mask_epix4.npy
 # aggressive - fivos
-mask_name = "mask_epix%d_aggressive.npy"  # e.g. mask_epix1_aggressive.npy .. mask_epix4_aggressive.npy
+#mask_name = "mask_epix%d_aggressive.npy"  # e.g. mask_epix1_aggressive.npy .. mask_epix4_aggressive.npy
+# masterpiece - fivos
+mask_name = "mask_epix%d_std.npy"  # e.g. mask_epix1_std.npy .. mask_epix4_std.npy
 
 ############
 # EPICS INIT
@@ -71,6 +75,7 @@ local_photon_sum_imgs ={x: np.zeros([epix_shape[0],epix_shape[1]],dtype=int)
 epix_mask_names = {x: mask_name%x for x in range(1,5) }
 epix_masks = {x: np.load( mask_path + epix_mask_names[x]) for x in range(1,5)}
 #epix_masks = {x: np.ones(epix_shape) for x in range(1,5)}
+epix_photon_masks = {x: np.ones(epix_shape, dtype=np.uint8) for x in range(1,5)}
 
 ############
 # CSPAD INIT
@@ -126,12 +131,12 @@ for ie, evt in enumerate(ds.events()):
     if ie < args.first:
         print ("Skipping event %d/%d"%(ie+1, args.first))
         continue
-
+    
     if seen_evts == args.shots:
         print("Reached max number of events!")
-        break
-
-    seen_evts += 1    
+        break #TJ: we should not do this, can freeze jobs occassionally
+    
+    seen_evts += 1
 
 ####################   
 #   EPICS detectors
@@ -152,6 +157,10 @@ for ie, evt in enumerate(ds.events()):
             local_sum2_imgs[x] += np.array(imgs[x]).astype(int)**2
 #           histograms           
             photon_img = epix[x].photons(evt, adu_per_photon=photon_adus, mask=epix_masks[x].astype(np.uint8))
+            #print type(photon_img)
+            epix_photon_masks[x][photon_img > 2] = 0
+            #print "2-photon events: %d" % ((photon_img > 1).sum())
+            #print "3-photon events (%d pixels): %d" % (np.logical_not(epix_photon_masks[x]).sum(), (photon_img > 2).sum())
             local_photon_sum_imgs[x] += photon_img.astype(int)
             photon_hist['epix_%d'%x] = np.histogram(photon_img[epix_masks[x] == 1], bins=np.arange(n_hist+1))[0]
             raw_hist['epix_%d'%x] = np.histogram(imgs[x][epix_masks[x] == 1], bins=np.arange(n_hist_raw+1))[0]
@@ -197,6 +206,9 @@ for ie, evt in enumerate(ds.events()):
     print("processed %d / %d images"\
         %( count , (ie +1 - args.first) ))
 
+# save photon threshold
+smldata.save({'photon_threshold': photon_adus})
+
 # save epix sums + mask
 epix_sum_imgs = {'epix_%d'%x: smldata.sum(local_sum_imgs[x])
     for x in range(1,5) }
@@ -208,6 +220,7 @@ epix_photon_sum_imgs = {'epix_%d'%x: smldata.sum(local_photon_sum_imgs[x])
     for x in range(1,5) }
 smldata.save({'epix_photon_sum': epix_photon_sum_imgs})
 smldata.save({'epix_mask': {'epix_%d'%x: epix_masks[x].astype(int) for x in range(1,5) }})
+smldata.save({'epix_photon_mask': {'epix_%d'%x: epix_photon_masks[x].astype(int) for x in range(1,5) }})
 
 # save cspad sums + mask
 smldata.save({'cspad': {'sum': smldata.sum(cspad_sum), 'sum2': smldata.sum(cspad_sum2), 'summed_shots': smldata.sum(cspad_summed_shots), 'mask': cspad_mask.astype(int)}})

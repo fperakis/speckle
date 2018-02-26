@@ -19,6 +19,10 @@ parser.add_argument('-n', '--cores', type=int, default=8,
                     help='set number of cores per job (default: 8 cores)')
 parser.add_argument('-q', '--queue', type=str, default='psfehhiprioq',
                     help='set queue to submit to (default: psfehhiprioq)')
+parser.add_argument('-t', '--tag', type=str, default="",
+                    help='add optional tag to figure names')
+parser.add_argument('-g','--gain',type=float, default=149., 
+                    help='ADU threshold for photonization (default: 149 ADU)')
 parser.add_argument('-s', '--shots', type=int, default=-1,
                     help='set maximum number of shots to process (default: all shots)')
 
@@ -40,19 +44,28 @@ else:
 
 n_cores = args.cores
 queue = args.queue
+gain = args.gain
+tag = args.tag
 n_shots = args.shots
 
 # paths
-write_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg'
+write_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/mpirun'
 bin_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/bin'
-log_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg/logs'
+log_dir = '/reg/d/psdm/xcs/xcslr0016/scratch/mpirun/logs'
 
 # submit runs
 for run in runs:
     print "submitting run %d.." % run
-    if n_shots >= 0:
-        submit_string = "bsub -n %d -q %s -o %s/r%04d_output.log mpirun python %s/speckle.analyze -s %d -r %d -o %s/r%04d_mpirun_%d.h5" % (n_cores, queue, log_dir, run, bin_dir, n_shots, run, write_dir, run, n_shots)
+    if tag != '':
+        submit_string = "bsub -n %d -q %s -o %s/r%04d_%s.log mpirun python %s/speckle.analyze -s %d -r %d -g %.0f -o %s/r%04d_%s" % (n_cores, queue, log_dir, run, tag, bin_dir, n_shots, run, gain, write_dir, run, tag)
     else:
-        submit_string = "bsub -n %d -q %s -o %s/r%04d_output.log mpirun python %s/speckle.analyze -s %d -r %d -o %s/r%04d_mpirun_ALL.h5" % (n_cores, queue, log_dir, run, bin_dir, n_shots, run, write_dir, run)
+        submit_string = "bsub -n %d -q %s -o %s/r%04d.log mpirun python %s/speckle.analyze -s %d -r %d -g %.0f -o %s/r%04d" % (n_cores, queue, log_dir, run, bin_dir, n_shots, run, gain, write_dir, run)
+    if n_shots >= 0:
+        submit_string += "_%d.h5" % n_shots
+    else:
+        submit_string += "_ALL.h5"
+    #test_string = 'mpirun'.join(submit_string.split('mpirun')[-2:])
+    #print test_string
+    #os.system(test_string)
     #print submit_string
     os.system(submit_string)

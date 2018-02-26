@@ -10,6 +10,7 @@ view.epix -r 39
 
 import argparse
 import numpy as np
+from numpy.ma import masked_array
 import h5py as h
 import sys, os, re
 from matplotlib import pyplot as plt
@@ -29,7 +30,9 @@ parser.add_argument('-b', '--bins', type=int, default=100,
 parser.add_argument('-m', '--masked', action="store_true",
                     help='load epix TBL files that are masked')
 parser.add_argument('-p', '--mpi', action="store_true",
-                    help='load epix HDF5 files from mpirun saved to /scratch/sellberg/')
+                    help='load epix HDF5 files from mpirun saved to /scratch/mpirun/')
+parser.add_argument('-t', '--tag', type=str, default="",
+                    help='add optional tag to figure names')
 parser.add_argument('-s', '--save', action="store_true",
                     help='save epix sums to file for masking')
 
@@ -65,25 +68,26 @@ kbar_min = args.kmin
 kbar_max = args.kmax
 n_bins = args.bins
 
-# masks
-mask_path = '/reg/d/psdm/xcs/xcslr0016/scratch/masks/'
-# name template, assumes convention epix1, epix2, epix3, epix4
-#epix_mask_name = "mask_r0019_epix%d+borders.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
-epix_mask_name = "mask_epix%d.npy"  # e.g. mask_r0019_epix1.npy .. mask_r0019_epix4.npy
-
 # - constants and parameters
 epix_shape  = (704, 768)    # dimensions of epix (pixels)
 photon_adus = 115.          # parameter for the photon routine
 cspad_shape = (2, 185, 388)
 n_pix_tot = epix_shape[0]*epix_shape[1]
 
-# -- cspad data
+# -- epix data
 epix_sum = []
+epix_sum2 = []
+epix_std = []
+epix_mask = []
 epix_hist = []
 epix_photon_hist = []
 for r in runs:
     if args.mpi:
-        fname = '/reg/d/psdm/xcs/xcslr0016/scratch/sellberg/run%d_mpirun_ALL.h5' % (r)
+        if args.tag != '':
+            fname = '/reg/d/psdm/xcs/xcslr0016/scratch/mpirun/r%04d_%s_ALL.h5' % (r, args.tag)
+            #fname = '/reg/d/psdm/xcs/xcslr0016/scratch/mpirun/darkmask_gain_scan/r%04d_%s_ALL.h5' % (r, args.tag)
+        else:
+            fname = '/reg/d/psdm/xcs/xcslr0016/scratch/mpirun/r%04d_mpirun_ALL.h5' % (r)
     elif args.masked:
         fname = '/reg/d/psdm/xcs/xcslr0016/scratch/combined/run%04d_ALL_masked.tbl' % (r)
     else:
@@ -93,19 +97,34 @@ for r in runs:
     if r == runs[0]:
         for i in range(1, 5):
             epix_sum.append(f['epix_sum/epix_%d' % i][:])
+            epix_sum2.append(f['epix_sum2/epix_%d' % i][:])
+            epix_mask.append(f['epix_mask/epix_%d' % i][:])
             epix_hist.append(f['raw_histogram/epix_%d' % i][:])
             epix_photon_hist.append(f['histogram/epix_%d' % i][:])
-        n_shots = f['cspad/summed_shots'][0]
+        n_shots_cspad = f['cspad/summed_shots'][0]
+        n_shots_epix = f['good_shots'][:].sum()
+        photon_adus = f['photon_threshold'][0]
     else:
         for i in range(1, 5):
             epix_sum[i-1] += f['epix_sum/epix_%d' % i][:]
+            epix_sum2[i-1] += f['epix_sum2/epix_%d' % i][:]
             epix_hist[i-1] = np.concatenate((epix_hist[i-1], f['raw_histogram/epix_%d' % i][:]), axis=0)
             epix_photon_hist[i-1] = np.concatenate((epix_photon_hist[i-1], f['histogram/epix_%d' % i][:]), axis=0)
-        n_shots += f['cspad/summed_shots'][0]
-    print "cspad/summed_shots", n_shots
+        n_shots_cspad += f['cspad/summed_shots'][0]
+        n_shots_epix += f['good_shots'][:].sum()
+    print "cspad/summed_shots", n_shots_cspad
+    print "good_shots", n_shots_epix
     print "raw_histogram", epix_hist[0].shape[0]
     print "photon_histogram", epix_photon_hist[0].shape[0]
     f.close()
+
+# calculate standard deviation
+for i in range(4):
+    var = epix_sum2[i]/n_shots_epix - np.square(epix_sum[i]/n_shots_epix)
+    if (var < 0).sum() > 0:
+        print "%d pixel(s) of epix %d have negative variance, setting to zero.." % ((var < 0).sum(), i+1)
+        var[var < 0] = 0
+    epix_std.append(np.sqrt(var))
 
 if args.save:
     fname = '../combined/run%s_epix_sum.h5' % (run_string)
@@ -114,7 +133,16 @@ if args.save:
         g = f.create_group('epix_sum')
         for i in range(1, 5):
             g.create_dataset('epix_%d' % i, data=epix_sum[i-1])
-        g.create_dataset('summed_shots', data=np.array([n_shots]))
+        g.create_dataset('summed_shots', data=np.array([n_shots_epix]))
+        g = f.create_group('epix_sum2')
+        for i in range(1, 5):
+            g.create_dataset('epix_%d' % i, data=epix_sum2[i-1])
+        g = f.create_group('epix_std')
+        for i in range(1, 5):
+            g.create_dataset('epix_%d' % i, data=epix_std[i-1])
+        g = f.create_group('epix_mask')
+        for i in range(1, 5):
+            g.create_dataset('epix_%d' % i, data=epix_mask[i-1])
         f.close()
         print "wrote epix data to %s" % fname
     else:
@@ -142,13 +170,14 @@ def kbar_binning(hist, kbar, n_bins):
             hist_avg[i, :] = np.average(hist[index_selection, :], axis=0)
     return kbar_bin_centers, hist_avg
 
-# plot figure
+# plot epix mean intensity
 plt.figure(num=1, figsize=(13, 13))
 plt.suptitle('run %s' % run_string)
 for i in range(4):
     ax = plt.subplot(2,2,i+1)
-    im = ax.imshow(epix_sum[i]/float(n_shots), vmin=0, vmax=1, interpolation='nearest')
-    plt.title('epix %d' % (i+1))
+    #im = ax.imshow(epix_sum[i]*epix_mask[i]/float(n_shots_epix), vmin=0, vmax=1, interpolation='nearest')
+    im = ax.imshow(masked_array(epix_sum[i]/float(n_shots_epix), np.logical_not(epix_mask[i])), vmin=0, vmax=1, interpolation='nearest')
+    plt.title('epix %d mean intensity [ADU/shot]' % (i+1))
 #plt.colorbar(im)
 plt.xticks()
 plt.tight_layout()
@@ -157,6 +186,31 @@ if len(runs) == 1:
     png_name = '../figures/r%04d_epix_fig1.png' % runs[0]
 else:
     png_name = '../figures/run%s_epix_fig1.png' % run_string
+if args.tag != '':
+    png_name = re.sub('.png', '_%s.png' % args.tag, png_name)
+if args.masked:
+    png_name = re.sub('.png', '_masked.png', png_name)
+plt.savefig(png_name, dpi=300)
+print "saved %s" % png_name
+
+# plot epix mean intensity
+plt.figure(num=8, figsize=(13, 13))
+plt.suptitle('run %s' % run_string)
+for i in range(4):
+    ax = plt.subplot(2,2,i+1)
+    #im = ax.imshow(epix_std[i]*epix_mask[i], vmin=0, vmax=10, interpolation='nearest')
+    im = ax.imshow(masked_array(epix_std[i], np.logical_not(epix_mask[i])), vmin=0, vmax=10, interpolation='nearest')
+    plt.title('epix %d standard deviation [ADU/shot]' % (i+1))
+#plt.colorbar(im)
+plt.xticks()
+plt.tight_layout()
+
+if len(runs) == 1:
+    png_name = '../figures/r%04d_epix_fig8.png' % runs[0]
+else:
+    png_name = '../figures/run%s_epix_fig8.png' % run_string
+if args.tag != '':
+    png_name = re.sub('.png', '_%s.png' % args.tag, png_name)
 if args.masked:
     png_name = re.sub('.png', '_masked.png', png_name)
 plt.savefig(png_name, dpi=300)
@@ -166,7 +220,7 @@ print "saved %s" % png_name
 fig = plt.figure(num=7, figsize=(13, 13))
 
 for i in range(4):
-    mask = np.load(mask_path + epix_mask_name % (i+1))
+    mask = epix_mask[i]
     n_pix = mask.sum()
     
     plt.figure(num=i+2, figsize=(13, 10))
@@ -239,6 +293,8 @@ for i in range(4):
         png_name = '../figures/r%04d_epix_fig%d.png' % (runs[0], i+2)
     else:
         png_name = '../figures/run%s_epix_fig%d.png' % (run_string, i+2)
+    if args.tag != '':
+        png_name = re.sub('.png', '_%s.png' % args.tag, png_name)
     if args.masked:
         png_name = re.sub('.png', '_masked.png', png_name)
     plt.savefig(png_name, dpi=300)
@@ -250,6 +306,7 @@ for i in range(4):
     fig_ax.plot(kbar_bins, beta_bins, '-o', label='epix%d' % (i+1))
     fig_ax.set_xlabel(r'$\bar{k}$ [photon/pix]')
     fig_ax.set_ylabel(r'$\beta$')
+    fig_ax.set_xlim([1e-5, 1e-1])
     fig_ax.set_ylim([-0.4, 1.0])
     fig_ax.set_xscale('log', nonposy='clip')
     fig_ax.axvline(x=kbar_min, ls='-', color='k')
@@ -259,14 +316,14 @@ for i in range(4):
 if len(epix) > 1:
     # combine epix detectors
     for e in epix:
-        mask = np.load(mask_path + epix_mask_name % (e+1))
+        mask = epix_mask[e-1]
         if e == epix[0]:
-            epix_csum = epix_sum[e-1]
+            epix_csum = epix_sum[e-1]*mask
             epix_chist = epix_hist[e-1]
             epix_cphoton_hist = epix_photon_hist[e-1]
             n_pix = mask.sum()
         else:
-            epix_csum += epix_sum[e-1]
+            epix_csum += epix_sum[e-1]*mask
             epix_chist += epix_hist[e-1]
             epix_cphoton_hist += epix_photon_hist[e-1]
             n_pix += mask.sum()
@@ -275,9 +332,9 @@ if len(epix) > 1:
     plt.figure(num=6, figsize=(20, 13))
     #plt.suptitle('run %s' % run_string)
     ax = plt.subplot(2,3,1)
-    im = ax.imshow(epix_csum/float(n_shots)/len(epix), vmin=0, vmax=1, interpolation='nearest')
+    im = ax.imshow(epix_csum/float(n_shots_epix)/len(epix), vmin=0, vmax=1, interpolation='nearest')
     plt.colorbar(im, pad=0.01)
-    plt.title('epix %s [ADU/shot]' % epix_string)
+    plt.title('epix %s [ADU/shot/epix]' % epix_string)
     plt.xticks()
 
     ax = plt.subplot(2,3,2)
@@ -363,6 +420,8 @@ if len(epix) > 1:
         png_name = '../figures/r%04d_epix_fig6.png' % (runs[0])
     else:
         png_name = '../figures/run%s_epix_fig6.png' % (run_string)
+    if args.tag != '':
+        png_name = re.sub('.png', '_%s.png' % args.tag, png_name)
     if args.masked:
         png_name = re.sub('.png', '_masked.png', png_name)
     plt.savefig(png_name, dpi=300)
@@ -375,6 +434,8 @@ if len(runs) == 1:
     png_name = '../figures/r%04d_epix_fig7.png' % (runs[0])
 else:
     png_name = '../figures/run%s_epix_fig7.png' % (run_string)
+if args.tag != '':
+    png_name = re.sub('.png', '_%s.png' % args.tag, png_name)
 if args.masked:
     png_name = re.sub('.png', '_masked.png', png_name)
 fig.savefig(png_name, dpi=300)
