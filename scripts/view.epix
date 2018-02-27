@@ -79,6 +79,7 @@ epix_sum = []
 epix_sum2 = []
 epix_std = []
 epix_mask = []
+epix_photon_mask = []
 epix_hist = []
 epix_photon_hist = []
 for r in runs:
@@ -99,6 +100,7 @@ for r in runs:
             epix_sum.append(f['epix_sum/epix_%d' % i][:])
             epix_sum2.append(f['epix_sum2/epix_%d' % i][:])
             epix_mask.append(f['epix_mask/epix_%d' % i][:])
+            epix_photon_mask.append(f['epix_photon_mask/epix_%d' % i][:])
             epix_hist.append(f['raw_histogram/epix_%d' % i][:])
             epix_photon_hist.append(f['histogram/epix_%d' % i][:])
         n_shots_cspad = f['cspad/summed_shots'][0]
@@ -108,6 +110,7 @@ for r in runs:
         for i in range(1, 5):
             epix_sum[i-1] += f['epix_sum/epix_%d' % i][:]
             epix_sum2[i-1] += f['epix_sum2/epix_%d' % i][:]
+            epix_photon_mask[i-1] *= f['epix_photon_mask/epix_%d' % i][:]
             epix_hist[i-1] = np.concatenate((epix_hist[i-1], f['raw_histogram/epix_%d' % i][:]), axis=0)
             epix_photon_hist[i-1] = np.concatenate((epix_photon_hist[i-1], f['histogram/epix_%d' % i][:]), axis=0)
         n_shots_cspad += f['cspad/summed_shots'][0]
@@ -127,7 +130,7 @@ for i in range(4):
     epix_std.append(np.sqrt(var))
 
 if args.save:
-    fname = '../combined/run%s_epix_sum.h5' % (run_string)
+    fname = '../sums/run%s_epix_sum.h5' % (run_string)
     if not os.path.exists(fname):
         f = h.File(fname, 'a')
         g = f.create_group('epix_sum')
@@ -143,6 +146,9 @@ if args.save:
         g = f.create_group('epix_mask')
         for i in range(1, 5):
             g.create_dataset('epix_%d' % i, data=epix_mask[i-1])
+        g = f.create_group('epix_photon_mask')
+        for i in range(1, 5):
+            g.create_dataset('epix_%d' % i, data=epix_photon_mask[i-1])
         f.close()
         print "wrote epix data to %s" % fname
     else:
